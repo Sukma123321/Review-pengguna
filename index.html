@@ -31,11 +31,22 @@
       transform: translateY(-3px);
       box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
     }
+      <style>
+    .image-container {
+      text-align: center;
+    }
+
+    .responsive-img {
+      max-width: 100%;
+      height: auto;
+    }
   </style>
 </head>
 <body class="bg-gray-50 font-sans p-4 max-w-4xl mx-auto min-h-screen">
   <header class="mb-8 text-center">
-    <img src="https://raw.githubusercontent.com/Sukma123321/Review-pengguna/main/GoPROLINK_(3).png" alt="GoPROLINK" width="500">
+      <div class="image-container">
+    <img src="https://raw.githubusercontent.com/Sukma123321/Review-pengguna/main/GoPROLINK_(3).png" alt="GoPROLINK" class="responsive-img">
+  </div>
     <h1 class="text-3xl font-bold text-gray-800 mb-2">GOPROLINK</h1>
     <p class="text-gray-600">Analisis Respon Pengguna</p>
   </header>
