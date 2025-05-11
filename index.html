@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Analisis Review Aplikasi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+  <style>
+    .star-yellow {
+      color: #fbbf24;
+    }
+    .star-gray {
+      color: #d1d5db;
+    }
+    .progress-container {
+      height: 8px;
+      border-radius: 4px;
+      background-color: #e5e7eb;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ef4444, #f97316, #eab308, #84cc16, #10b981);
+      transition: width 0.5s ease;
+    }
+    .indicator-card {
+      transition: all 0.3s ease;
+    }
+    .indicator-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body class="bg-gray-50 font-sans p-4 max-w-4xl mx-auto min-h-screen">
+  <header class="mb-8 text-center">
+    <h1 class="text-3xl font-bold text-gray-800 mb-2">GOPROLINK</h1>
+    <p class="text-gray-600">Analisis Respon Pengguna</p>
+  </header>
+
+  <!-- Ringkasan Utama -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <!-- Total Responden -->
+    <div class="bg-white p-6 rounded-lg shadow">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-gray-500">Total Responden</p>
+          <h2 class="text-3xl font-bold text-gray-800" id="totalRespondents">0</h2>
+        </div>
+        <div class="bg-blue-100 p-3 rounded-full">
+          <i class="fas fa-users text-blue-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rating Rata-rata -->
+    <div class="bg-white p-6 rounded-lg shadow">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-gray-500">Rating Rata-rata</p>
+          <h2 class="text-3xl font-bold text-gray-800" id="averageRating">0.0</h2>
+          <div class="flex mt-1" id="overallStars"></div>
+        </div>
+        <div class="bg-green-100 p-3 rounded-full">
+          <i class="fas fa-star text-green-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tanggal Terakhir Update -->
+    <div class="bg-white p-6 rounded-lg shadow">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-gray-500">Update Terakhir</p>
+          <h2 class="text-3xl font-bold text-gray-800" id="lastUpdate">-</h2>
+        </div>
+        <div class="bg-purple-100 p-3 rounded-full">
+          <i class="fas fa-calendar-alt text-purple-500 text-xl"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analisis Sub Indikator -->
+  <div class="bg-white p-6 rounded-lg shadow mb-8">
+    <h2 class="text-xl font-bold text-gray-800 mb-6">Analisis Sub Indikator</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="subIndicators"></div>
+  </div>
+
+  <!-- Distribusi Rating -->
+  <div class="bg-white p-6 rounded-lg shadow mb-8">
+    <h2 class="text-xl font-bold text-gray-800 mb-6">Distribusi Rating</h2>
+    <div class="space-y-3" id="ratingDistribution"></div>
+  </div>
+
+  <!-- Daftar Ulasan -->
+  <div class="bg-white p-6 rounded-lg shadow">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-xl font-bold text-gray-800">10 Ulasan dengan Rating Tertinggi
+
+</h2>
+      <button id="refreshBtn" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition">
+        <i class="fas fa-sync-alt mr-2"></i>Refresh Data
+      </button>
+    </div>
+    <div class="space-y-6" id="reviewsList"></div>
+  </div>
+
+  <script>
+    // Konfigurasi
+    const SHEET_ID = '1nPPS6ZfeaMko8FcnXdqOTfuCSh1YxdsTf801pFESU1Q';
+    const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+
+    // Data
+    let reviewsData = [];
+    let lastUpdateTime = null;
+    let subIndicators = {
+      'Tampilan Aplikasi': { questions: [0,4], total: 0, count: 0 },
+      'Bahasa': { questions: [5,9], total: 0, count: 0 },
+      'Penyajian Informasi': { questions: [10,14], total: 0, count: 0 },
+      'Manfaat Aplikasi': { questions: [15,19], total: 0, count: 0 }
+    };
+
+    // Fungsi untuk parsing tanggal dari Google Sheets
+    function parseSheetDate(dateStr) {
+      if (!dateStr) return null;
+      
+      // Coba parsing format Excel (serial number)
+      if (typeof dateStr === 'number') {
+        const excelEpoch = new Date(1899, 11, 30);
+        const days = Math.floor(dateStr);
+        const milliseconds = (dateStr - days) * 86400 * 1000;
+        const date = new Date(excelEpoch.getTime() + (days * 24 * 60 * 60 * 1000) + milliseconds);
+        return date;
+      }
+      
+      // Coba parsing format string "dd/mm/yyyy hh:mm:ss"
+      if (typeof dateStr === 'string') {
+        const parts = dateStr.split(/[/ :]/);
+        if (parts.length >= 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const year = parseInt(parts[2], 10);
+          const hours = parts.length > 3 ? parseInt(parts[3], 10) : 0;
+          const minutes = parts.length > 4 ? parseInt(parts[4], 10) : 0;
+          const seconds = parts.length > 5 ? parseInt(parts[5], 10) : 0;
+          
+          return new Date(year, month, day, hours, minutes, seconds);
+        }
+      }
+      
+      return null;
+    }
+
+    // Fungsi untuk mengambil data dari Google Sheets
+    async function fetchData() {
+      try {
+        const response = await fetch(SHEET_URL);
+        const text = await response.text();
+        const json = JSON.parse(text.substr(47).slice(0, -2));
+        
+        const rows = json.table.rows;
+        reviewsData = [];
+        lastUpdateTime = new Date();
+        
+        // Reset sub indicators
+        for (let key in subIndicators) {
+          subIndicators[key] = { ...subIndicators[key], total: 0, count: 0 };
+        }
+        
+        // Proses setiap baris data
+        rows.slice(1).forEach(row => {
+          const cells = row.c;
+          
+          // Skip baris kosong
+          if (!cells || cells.length < 3) return;
+          
+          const timestamp = cells[0] ? parseSheetDate(cells[0].v) : null;
+          const name = cells[1]?.v || 'Anonim';
+          const address = cells[2]?.v || '';
+          
+          const review = {
+            timestamp: timestamp,
+            name: name,
+            address: address,
+            answers: [],
+            suggestion: cells[20]?.v || ''
+          };
+          
+          // Ambil jawaban untuk setiap pertanyaan (D1-T1)
+          for (let i = 3; i <= 19; i++) {
+            if (cells[i] && cells[i].v !== null && !isNaN(cells[i].v)) {
+              review.answers.push(parseInt(cells[i].v));
+            } else {
+              review.answers.push(0); // Default value jika tidak ada jawaban
+            }
+          }
+          
+          // Hanya tambahkan jika ada minimal 1 jawaban
+          if (review.answers.some(answer => answer > 0)) {
+            reviewsData.push(review);
+            calculateSubIndicators(review);
+          }
+        });
+        
+        renderAll();
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        showError('Gagal memuat data. Silakan coba lagi atau periksa koneksi internet Anda.');
+      }
+    }
+
+    // Fungsi untuk menghitung sub indikator
+    function calculateSubIndicators(review) {
+      for (const [indicator, data] of Object.entries(subIndicators)) {
+        const [startIdx, endIdx] = data.questions;
+        const answers = review.answers.slice(startIdx, endIdx + 1);
+        
+        // Hanya hitung jika ada jawaban yang valid
+        const validAnswers = answers.filter(a => a > 0);
+        if (validAnswers.length > 0) {
+          const sum = validAnswers.reduce((a, b) => a + b, 0);
+          const maxPossible = validAnswers.length * 5; // Setiap pertanyaan skala 1-5
+          const percentage = (sum / maxPossible) * 100;
+          
+          subIndicators[indicator].total += percentage;
+          subIndicators[indicator].count++;
+        }
+      }
+    }
+
+    // Fungsi untuk mengkonversi persentase ke bintang
+    function percentageToStars(percentage) {
+      if (percentage <= 20) return 1;
+      if (percentage <= 40) return 2;
+      if (percentage <= 60) return 3;
+      if (percentage <= 80) return 4;
+      return 5;
+    }
+
+    // Fungsi untuk membuat elemen bintang
+    function createStars(rating, max = 5) {
+      const container = document.createElement('div');
+      container.className = 'flex space-x-1';
+      
+      for (let i = 1; i <= max; i++) {
+        const star = document.createElement('i');
+        star.className = i <= rating ? 'fas fa-star star-yellow' : 'far fa-star star-gray';
+        container.appendChild(star);
+      }
+      
+      return container;
+    }
+
+    // Fungsi untuk membuat progress bar
+    function createProgressBar(percentage, showLabel = true) {
+      const container = document.createElement('div');
+      container.className = 'space-y-1';
+      
+      if (showLabel) {
+        const label = document.createElement('div');
+        label.className = 'flex justify-between text-sm';
+        
+        const percentageText = document.createElement('span');
+        percentageText.className = 'font-medium';
+        percentageText.textContent = `${percentage.toFixed(1)}%`;
+        
+        const starsText = document.createElement('span');
+        starsText.className = 'text-gray-500';
+        starsText.textContent = `${percentageToStars(percentage)} bintang`;
+        
+        label.appendChild(percentageText);
+        label.appendChild(starsText);
+        container.appendChild(label);
+      }
+      
+      const barContainer = document.createElement('div');
+      barContainer.className = 'progress-container';
+      
+      const barFill = document.createElement('div');
+      barFill.className = 'progress-fill';
+      barFill.style.width = `${Math.min(100, Math.max(0, percentage))}%`;
+      
+      barContainer.appendChild(barFill);
+      container.appendChild(barContainer);
+      
+      return container;
+    }
+
+    // Fungsi untuk menampilkan error
+    function showError(message) {
+      const container = document.getElementById('reviewsList');
+      container.innerHTML = `
+        <div class="text-center py-8 text-red-500 bg-red-50 rounded-lg">
+          <i class="fas fa-exclamation-triangle text-2xl mb-2"></i>
+          <p class="font-medium">${message}</p>
+        </div>
+      `;
+    }
+
+    // Fungsi untuk merender semua komponen
+    function renderAll() {
+      renderSummary();
+      renderSubIndicators();
+      renderRatingDistribution();
+      renderReviews();
+    }
+
+    // Fungsi untuk menampilkan ringkasan
+    function renderSummary() {
+      document.getElementById('totalRespondents').textContent = reviewsData.length;
+      
+      // Format waktu update terakhir
+      const now = new Date();
+      document.getElementById('lastUpdate').textContent = now.toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit'
+      }) + ' WIB';
+      
+      if (reviewsData.length === 0) {
+        document.getElementById('averageRating').textContent = '0.0';
+        document.getElementById('overallStars').innerHTML = '';
+        return;
+      }
+      
+      // Hitung rating keseluruhan
+      let totalRating = 0;
+      let totalQuestions = 0;
+      
+      reviewsData.forEach(review => {
+        const validAnswers = review.answers.filter(a => a > 0);
+        if (validAnswers.length > 0) {
+          totalRating += validAnswers.reduce((a, b) => a + b, 0);
+          totalQuestions += validAnswers.length;
+        }
+      });
+      
+      const averageRating = totalQuestions > 0 ? (totalRating / totalQuestions) : 0;
+      
+      // Tampilkan dalam skala 1-5
+      document.getElementById('averageRating').textContent = averageRating.toFixed(1);
+      
+      const starsContainer = document.getElementById('overallStars');
+      starsContainer.innerHTML = '';
+      starsContainer.appendChild(createStars(Math.round(averageRating)));
+    }
+
+    // Fungsi untuk menampilkan sub indikator
+    function renderSubIndicators() {
+      const container = document.getElementById('subIndicators');
+      container.innerHTML = '';
+      
+      for (const [indicator, data] of Object.entries(subIndicators)) {
+        if (data.count === 0) continue;
+        
+        const averagePercentage = data.total / data.count;
+        const stars = percentageToStars(averagePercentage);
+        
+        const card = document.createElement('div');
+        card.className = 'indicator-card bg-white p-5 rounded-lg border border-gray-100 shadow-sm';
+        
+        const title = document.createElement('h3');
+        title.className = 'text-lg font-semibold text-gray-800 mb-3';
+        title.textContent = indicator;
+        
+        const starsContainer = document.createElement('div');
+        starsContainer.className = 'mb-3';
+        starsContainer.appendChild(createStars(stars));
+        
+        const progressBar = createProgressBar(averagePercentage, false);
+        
+        const details = document.createElement('div');
+        details.className = 'mt-2 flex justify-between items-center text-sm';
+        
+        const percentageText = document.createElement('span');
+        percentageText.className = 'font-medium text-gray-700';
+        percentageText.textContent = `${averagePercentage.toFixed(1)}%`;
+        
+        const countText = document.createElement('span');
+        countText.className = 'text-gray-500';
+        countText.textContent = `${data.count} respon`;
+        
+        details.appendChild(percentageText);
+        details.appendChild(countText);
+        
+        card.appendChild(title);
+        card.appendChild(starsContainer);
+        card.appendChild(progressBar);
+        card.appendChild(details);
+        container.appendChild(card);
+      }
+    }
+
+    // Fungsi untuk menampilkan distribusi rating
+// Fungsi untuk menampilkan distribusi rating
+function renderRatingDistribution() {
+  const distribution = [0, 0, 0, 0, 0]; // Untuk rating 1-5 bintang
+  
+  reviewsData.forEach(review => {
+    const validAnswers = review.answers.filter(a => a > 0);
+    if (validAnswers.length > 0) {
+      const avg = validAnswers.reduce((a, b) => a + b, 0) / validAnswers.length;
+      const rating = Math.round(avg); // Langsung ke skala 1-5
+      if (rating >= 1 && rating <= 5) {
+        distribution[5 - rating]++;
+      }
+    }
+  });
+  
+  const container = document.getElementById('ratingDistribution');
+  container.innerHTML = '';
+  
+  for (let i = 5; i >= 1; i--) {
+    const count = distribution[5 - i];
+    
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between py-2 border-b border-gray-100 last:border-0';
+    
+    const starLabel = document.createElement('div');
+    starLabel.className = 'flex items-center w-32';
+    starLabel.innerHTML = `<span class="text-gray-700 font-medium mr-2">${i}</span>`;
+    starLabel.appendChild(createStars(i));
+    
+    const countText = document.createElement('span');
+    countText.className = 'text-gray-700 font-medium';
+    countText.textContent = `${count} responden`;
+    
+    row.appendChild(starLabel);
+    row.appendChild(countText);
+    container.appendChild(row);
+  }
+}
+    // Fungsi untuk menampilkan daftar ulasan
+    function renderReviews() {
+      const container = document.getElementById('reviewsList');
+      container.innerHTML = '';
+      
+      if (reviewsData.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+            <i class="fas fa-comment-slash text-2xl mb-2"></i>
+            <p>Belum ada ulasan.</p>
+          </div>
+        `;
+        return;
+      }
+      
+      // Urutkan berdasarkan tanggal terbaru
+  const sortedReviews = [...reviewsData].sort((a, b) => {
+    const avgA = a.answers.filter(x => x > 0).reduce((sum, val) => sum + val, 0) / a.answers.filter(x => x > 0).length || 0;
+    const avgB = b.answers.filter(x => x > 0).reduce((sum, val) => sum + val, 0) / b.answers.filter(x => x > 0).length || 0;
+    return avgB - avgA; // Descending order
+  });
+  
+      
+      sortedReviews.slice(0, 10).forEach(review => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-50 p-5 rounded-lg';
+        
+        const header = document.createElement('div');
+        header.className = 'flex justify-between items-start mb-3';
+        
+        const userInfo = document.createElement('div');
+        
+        const name = document.createElement('h3');
+        name.className = 'font-semibold text-gray-800';
+        name.textContent = review.name;
+        
+        const address = document.createElement('p');
+        address.className = 'text-gray-500 text-sm';
+        address.textContent = review.address;
+        
+        userInfo.appendChild(name);
+        userInfo.appendChild(address);
+        
+        const date = document.createElement('p');
+        date.className = 'text-gray-400 text-sm whitespace-nowrap ml-4';
+        date.textContent = formatDate(review.timestamp);
+        
+        header.appendChild(userInfo);
+        header.appendChild(date);
+        
+        const content = document.createElement('div');
+        
+        const validAnswers = review.answers.filter(a => a > 0);
+        if (validAnswers.length > 0) {
+          const avgRating = validAnswers.reduce((a, b) => a + b, 0) / validAnswers.length;
+          
+          const ratingContainer = document.createElement('div');
+          ratingContainer.className = 'flex items-center space-x-2 mb-3';
+          
+          const stars = createStars(Math.round(avgRating));
+          
+          const ratingText = document.createElement('span');
+          ratingText.className = 'text-gray-700 font-medium';
+          ratingText.textContent = avgRating.toFixed(1);
+          
+          ratingContainer.appendChild(stars);
+          ratingContainer.appendChild(ratingText);
+          content.appendChild(ratingContainer);
+          
+          // Tampilkan rating per sub indikator
+          const indicatorsContainer = document.createElement('div');
+          indicatorsContainer.className = 'grid grid-cols-2 gap-3 mb-3';
+          
+          for (const [indicator, data] of Object.entries(subIndicators)) {
+            const [startIdx, endIdx] = data.questions;
+            const answers = review.answers.slice(startIdx, endIdx + 1).filter(a => a > 0);
+            
+            if (answers.length > 0) {
+              const sum = answers.reduce((a, b) => a + b, 0);
+              const maxPossible = answers.length * 5;
+              const percentage = (sum / maxPossible) * 100;
+              
+              const indicatorElement = document.createElement('div');
+              indicatorElement.className = 'text-sm';
+              
+              const label = document.createElement('p');
+              label.className = 'text-gray-500 mb-1';
+              label.textContent = indicator;
+              
+              const progress = createProgressBar(percentage, false);
+              
+              indicatorElement.appendChild(label);
+              indicatorElement.appendChild(progress);
+              indicatorsContainer.appendChild(indicatorElement);
+            }
+          }
+          
+          content.appendChild(indicatorsContainer);
+        }
+        
+        if (review.suggestion) {
+          const suggestionTitle = document.createElement('p');
+          suggestionTitle.className = 'text-gray-700 font-medium mb-1';
+          suggestionTitle.textContent = 'Saran:';
+          
+          const suggestionText = document.createElement('p');
+          suggestionText.className = 'text-gray-600';
+          suggestionText.textContent = review.suggestion;
+          
+          content.appendChild(suggestionTitle);
+          content.appendChild(suggestionText);
+        }
+        
+        card.appendChild(header);
+        card.appendChild(content);
+        container.appendChild(card);
+      });
+    }
+
+    // Fungsi untuk memformat tanggal
+    function formatDate(timestamp) {
+      if (!timestamp) return 'Tanggal tidak tersedia';
+      
+      return timestamp.toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+
+    // Event listener untuk tombol refresh
+    document.getElementById('refreshBtn').addEventListener('click', fetchData);
+
+    // Inisialisasi
+    document.addEventListener('DOMContentLoaded', fetchData);
+  </script>
+</body>
+</html>
